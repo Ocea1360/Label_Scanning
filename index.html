@@ -10,9 +10,14 @@
     :root { --bg:#14171c; --card:#1e232a; --txt:#eef0f3; --mut:#9aa3af; --acc:#5b9bff; --line:#2d343d; }
   }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--txt); padding:16px; max-width:640px; margin-inline:auto; }
-  h1 { font-size:1.2rem; margin:0 0 12px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--txt); padding:10px 10px 84px; max-width:640px; margin-inline:auto; }
+  h1 { font-size:1.05rem; margin:0 0 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; margin-bottom:10px; }
+  .scanrow { display:flex; gap:10px; align-items:center; margin-top:8px; }
+  .scanrow:empty { display:none; }
+  #bar { position:fixed; left:0; right:0; bottom:0; z-index:5; display:flex; gap:10px; padding:8px 10px calc(8px + env(safe-area-inset-bottom)); background:var(--card); border-top:1px solid var(--line); }
+  #bar button { padding:13px 10px; }
+  #bar #add { flex:2; } #bar #clear { flex:1; }
   button, .btn { display:inline-block; font:inherit; border:0; border-radius:10px; padding:14px 16px; background:var(--acc); color:#fff; width:100%; text-align:center; cursor:pointer; }
   button.sec, .btn.sec { background:transparent; color:var(--acc); border:1px solid var(--acc); }
   #camov { position:fixed; inset:0; background:#000; z-index:10; display:none; }
