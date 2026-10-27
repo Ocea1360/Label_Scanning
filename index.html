@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan étiquettes</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --txt:#1c1f24; --mut:#667085; --acc:#1d5fd1; --line:#e2e5ea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1e232a; --txt:#eef0f3; --mut:#9aa3af; --acc:#5b9bff; --line:#2d343d; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--txt); padding:16px; max-width:640px; margin-inline:auto; }
+  h1 { font-size:1.2rem; margin:0 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; }
+  button, .btn { display:inline-block; font:inherit; border:0; border-radius:10px; padding:14px 16px; background:var(--acc); color:#fff; width:100%; text-align:center; cursor:pointer; }
+  button.sec, .btn.sec { background:transparent; color:var(--acc); border:1px solid var(--acc); }
+  #camov { position:fixed; inset:0; background:#000; z-index:10; display:none; }
+  #camov video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  #frame { position:absolute; left:5%; width:90%; aspect-ratio:1.6/1; top:42%; transform:translateY(-50%);
+           border:3px solid #fff; border-radius:8px; box-shadow:0 0 0 100vmax rgba(0,0,0,.55); pointer-events:none; }
+  #camhint { position:absolute; left:0; right:0; top:14px; text-align:center; color:#fff; font-size:.95rem; text-shadow:0 1px 3px #000; }
+  #cambar { position:absolute; left:16px; right:16px; bottom:24px; display:flex; gap:10px; }
+  button.small { width:auto; padding:6px 10px; font-size:.85rem; }
+  input[type=file] { display:none; }
+  label { display:block; font-size:.8rem; color:var(--mut); margin:10px 0 4px; }
+  input[type=text] { width:100%; font:inherit; padding:12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--txt); }
+  #preview { max-width:100%; border-radius:8px; margin-top:10px; display:none; }
+  #status { font-size:.9rem; color:var(--mut); margin-top:8px; min-height:1.2em; }
+  .row { display:flex; gap:10px; margin-top:12px; }
+  .letters { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:6px; }
+  .letters button { padding:10px 0; font-size:1.05rem; background:transparent; color:var(--acc); border:1px solid var(--acc); }
+  .letters button.on { background:var(--acc); color:#fff; }
+  table { width:100%; border-collapse:collapse; font-size:.85rem; }
+  th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
+  details { margin-top:10px; font-size:.8rem; color:var(--mut); }
+  pre { white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Scan étiquettes</h1>
+
+<div class="card">
+  <button id="live">📷 Scanner (cadre de visée)</button>
+  <label class="btn sec" for="cam" style="margin-top:8px">Photo native (secours)</label>
+  <input id="cam" type="file" accept="image/*" capture="environment">
+  <div id="status"></div>
+  <img id="preview" alt="Aperçu">
+  <details><summary>Texte brut lu (diagnostic)</summary><pre id="raw"></pre></details>
+</div>
+
+<div class="card">
+  <label for="client">Client</label>
+  <input id="client" type="text" autocomplete="off">
+  <label for="ref">Réf (peut être coupée sur l'étiquette elle-même)</label>
+  <input id="ref" type="text" autocomplete="off">
+  <label for="lettre">Lettre (manuscrite : à choisir)</label>
+  <input id="lettre" type="text" maxlength="3" autocomplete="off">
+  <div class="letters" id="letters"></div>
+  <div class="row">
+    <button id="add">Ajouter au tableau</button>
+    <button id="clear" class="sec">Vider</button>
+  </div>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>Client</th><th>Réf</th><th>Lettre</th><th>Scan</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="row">
+    <button id="export">Exporter en CSV (Excel)</button>
+    <button id="wipe" class="sec">Tout effacer</button>
+  </div>
+</div>
+
+<div id="camov">
+  <video id="vid" autoplay playsinline muted></video>
+  <div id="frame"></div>
+  <div id="camhint">Remplissez le cadre avec une seule étiquette</div>
+  <div id="cambar"><button id="snap">Capturer</button><button id="camclose" class="sec" style="background:rgba(0,0,0,.5)">Annuler</button></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const KEY = 'scan-etiquettes-v1';
+const LETTRES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; // lettres proposées en boutons
+const $ = id => document.getElementById(id);
+
+/* ---------- Extraction Client / Réf (tolère les parasites de l'OCR) ---------- */
+function parseLabel(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const TOK = /^[A-ZÀ-Ý0-9][A-ZÀ-Ý0-9'’.&\/-]*$/;
+  function clean(s) {
+    s = s.replace(/^[^A-Za-z0-9À-ÿ]+/, '');
+    const out = [];
+    for (let t of s.split(/\s+/)) {
+      t = t.replace(/^[|\\~,;:_()\[\]{}]+|[|\\~,;:_()\[\]{}]+$/g, '');
+      if (!TOK.test(t)) break;
+      out.push(t);
+    }
+    return out.join(' ').replace(/[\s\/-]+$/, '');
+  }
+  function after(re) {
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(re);
+      if (!m) continue;
+      let v = clean(lines[i].slice(m.index + m[0].length));
+      if (!v && i + 1 < lines.length) v = clean(lines[i + 1]); // valeur sur la ligne suivante
+      if (v) return v;
+    }
+    return '';
+  }
+  return {
+    client: after(/c[li1!|]{1,2}ent\)?\s*[:;.)]?/i),
+    ref: after(/\bre[fl1!]\b\s*[:;.]?/i)
+  };
+}
+
+/* ---------- Prétraitement : agrandir, niveaux de gris, étirer le contraste ---------- */
+async function preparer(src) { // src : fichier image ou canvas
+  const bmp = await createImageBitmap(src);
+  const w = bmp.width < 1600 ? Math.round(bmp.width * 1.5) : Math.min(bmp.width, 2000);
+  const h = Math.round(bmp.height * (w / bmp.width));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'); ctx.drawImage(bmp, 0, 0, w, h);
+  const raw = document.createElement('canvas'); raw.width = w; raw.height = h;
+  raw.getContext('2d').drawImage(c, 0, 0);
+  const img = ctx.getImageData(0, 0, w, h), d = img.data, hist = new Uint32Array(256);
+  for (let i = 0; i < d.length; i += 4) {
+    const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    d[i] = d[i + 1] = d[i + 2] = g; hist[g]++;
+  }
+  const n = w * h; let acc = 0, lo = 0, hi = 255;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.02) { lo = v; break; } }
+  acc = 0;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= n * 0.02) { hi = v; break; } }
+  const span = Math.max(hi - lo, 1);
+  for (let i = 0; i < d.length; i += 4) {
+    const v = Math.max(0, Math.min(255, Math.round((d[i] - lo) * 255 / span)));
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  ctx.putImageData(img, 0, 0);
+  return { raw, gray: c };
+}
+
+/* Retient la valeur trouvée le plus souvent ; à égalité, la plus courte (moins de parasites) */
+function pick(list) {
+  const vals = list.filter(Boolean);
+  if (!vals.length) return '';
+  const n = {}; vals.forEach(v => n[v] = (n[v] || 0) + 1);
+  return vals.sort((a, b) => (n[b] - n[a]) || (a.length - b.length))[0];
+}
+
+/* ---------- OCR (2 passes si un champ manque) ---------- */
+let workerP = null;
+function getWorker() {
+  if (!workerP) workerP = Tesseract.createWorker('eng', 1, {
+    logger: m => { if (m.status === 'recognizing text') $('status').textContent = 'Lecture : ' + Math.round(m.progress * 100) + ' %'; }
+  });
+  return workerP;
+}
+
+async function lireImage(src) { // src : fichier image ou canvas recadré
+  const t0 = Date.now();
+  $('status').textContent = 'Préparation… (1ère fois : téléchargement du moteur, patientez)';
+  $('preview').src = (src instanceof HTMLCanvasElement) ? src.toDataURL('image/jpeg', 0.7) : URL.createObjectURL(src);
+  $('preview').style.display = 'block';
+  try {
+    const { raw: cRaw, gray: cGray } = await preparer(src);
+    const worker = await getWorker();
+    const passes = [['image brute, mode 6', cRaw, '6'], ['image traitée, mode 6', cGray, '6'], ['image traitée, mode 11', cGray, '11']];
+    const found = []; let raw = '';
+    for (let i = 0; i < passes.length; i++) {
+      const [nom, cv, psm] = passes[i];
+      await worker.setParameters({ tessedit_pageseg_mode: psm });
+      const res = await worker.recognize(cv);
+      const t = res.data.text || '';
+      raw += '--- ' + nom + ' ---\n' + t + '\n';
+      found.push(parseLabel(t));
+      // après 2 passes : on s'arrête si les deux champs sont trouvés et identiques
+      if (i === 1 && found[0].client && found[0].client === found[1].client && found[0].ref && found[0].ref === found[1].ref) break;
+    }
+    const f = { client: pick(found.map(x => x.client)), ref: pick(found.map(x => x.ref)) };
+    $('raw').textContent = raw;
+    $('client').value = f.client; $('ref').value = f.ref; $('lettre').value = ''; markLetter('');
+    const manque = [!f.client && 'Client', !f.ref && 'Réf'].filter(Boolean);
+    $('status').textContent = (manque.length ? 'Non trouvé : ' + manque.join(', ') + ' → à saisir. ' : 'Vérifiez les champs. ') + 'Choisissez la lettre. (' + Math.round((Date.now() - t0) / 1000) + ' s, ' + found.length + ' lecture(s), image lue : ' + cRaw.width + '×' + cRaw.height + ')';
+  } catch (e) {
+    $('status').textContent = 'Erreur de lecture : ' + e.message + ' (internet nécessaire au premier usage).';
+  }
+}
+
+/* ---------- Caméra en direct avec cadre de visée : on ne lit que ce qui est dans le cadre ---------- */
+let stream = null;
+function stopCam() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } $('camov').style.display = 'none'; }
+$('live').onclick = async () => {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $('status').textContent = 'Caméra en direct indisponible ici → utilisez « Photo native ».'; return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1440 } }, audio: false });
+    $('vid').srcObject = stream; $('camov').style.display = 'block';
+  } catch (e) {
+    $('status').textContent = 'Caméra refusée ou indisponible (' + e.name + ' : ' + (e.message || '—') + ') · adresse : ' + location.protocol + '// · contexte sécurisé : ' + (window.isSecureContext ? 'oui' : 'non') + ' → utilisez « Photo native ».';
+  }
+};
+$('camclose').onclick = stopCam;
+$('snap').onclick = () => {
+  const v = $('vid'), vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return;
+  const vr = v.getBoundingClientRect(), fr = $('frame').getBoundingClientRect();
+  const s = Math.max(vr.width / vw, vr.height / vh);              // object-fit: cover
+  const ox = (vw * s - vr.width) / 2, oy = (vh * s - vr.height) / 2;
+  const mx = fr.width * 0.04, my = fr.height * 0.04;              // petite marge autour du cadre
+  let sx = (fr.left - vr.left - mx + ox) / s, sy = (fr.top - vr.top - my + oy) / s;
+  let sw = (fr.width + 2 * mx) / s, sh = (fr.height + 2 * my) / s;
+  sx = Math.max(0, sx); sy = Math.max(0, sy); sw = Math.min(vw - sx, sw); sh = Math.min(vh - sy, sh);
+  const c = document.createElement('canvas'); c.width = Math.round(sw); c.height = Math.round(sh);
+  c.getContext('2d').drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  stopCam();
+  lireImage(c);
+};
+
+/* ---------- Lettre ---------- */
+function markLetter(v) { document.querySelectorAll('#letters button').forEach(b => b.classList.toggle('on', b.textContent === v)); }
+LETTRES.split('').forEach(L => {
+  const b = document.createElement('button'); b.textContent = L;
+  b.onclick = () => { $('lettre').value = L; markLetter(L); };
+  $('letters').appendChild(b);
+});
+$('lettre').addEventListener('input', () => markLetter($('lettre').value.trim().toUpperCase()));
+
+/* ---------- Tableau ---------- */
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } };
+const save = d => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch {} };
+let data = load();
+
+function render() {
+  $('rows').innerHTML = '';
+  data.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    [r.client, r.ref, r.lettre, r.scan].forEach(v => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+    const td = document.createElement('td');
+    const b = document.createElement('button'); b.className = 'small sec'; b.textContent = '✕';
+    b.onclick = () => { data.splice(i, 1); save(data); render(); };
+    td.appendChild(b); tr.appendChild(td);
+    $('rows').appendChild(tr);
+  });
+}
+
+function resetForm() {
+  ['client', 'ref', 'lettre'].forEach(id => $(id).value = ''); markLetter('');
+  $('preview').style.display = 'none'; $('raw').textContent = ''; $('status').textContent = '';
+}
+
+$('cam').addEventListener('change', e => { if (e.target.files[0]) lireImage(e.target.files[0]); e.target.value = ''; });
+$('clear').onclick = resetForm;
+$('add').onclick = () => {
+  const client = $('client').value.trim(), ref = $('ref').value.trim(), lettre = $('lettre').value.trim().toUpperCase();
+  if (!client && !ref && !lettre) { $('status').textContent = 'Rien à ajouter.'; return; }
+  const scan = new Date().toLocaleString('fr-BE', { dateStyle: 'short', timeStyle: 'short' });
+  data.push({ client, ref, lettre, scan }); save(data); render(); resetForm();
+};
+$('wipe').onclick = () => { if (confirm('Effacer tout le tableau ?')) { data = []; save(data); render(); } };
+
+/* ---------- Export CSV : séparateur ; + BOM pour Excel en français ---------- */
+$('export').onclick = () => {
+  if (!data.length) { $('status').textContent = 'Tableau vide.'; return; }
+  const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+  const rows = [['Client', 'Réf', 'Lettre', 'Date scan'], ...data.map(r => [r.client, r.ref, r.lettre, r.scan])];
+  const csv = '﻿' + rows.map(r => r.map(esc).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'etiquettes_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+};
+
+render();
+</script>
+</body>
+</html>
