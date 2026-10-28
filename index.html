@@ -29,16 +29,20 @@
   button.small { width:auto; padding:6px 10px; font-size:.85rem; }
   input[type=file] { display:none; }
   label { display:block; font-size:.8rem; color:var(--mut); margin:10px 0 4px; }
-  input[type=text] { width:100%; font:inherit; padding:12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--txt); }
-  #preview { max-width:100%; border-radius:8px; margin-top:10px; display:none; }
-  #status { font-size:.9rem; color:var(--mut); margin-top:8px; min-height:1.2em; }
-  .row { display:flex; gap:10px; margin-top:12px; }
-  .letters { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:6px; }
-  .letters button { padding:10px 0; font-size:1.05rem; background:transparent; color:var(--acc); border:1px solid var(--acc); }
+  input[type=text] { width:100%; font:inherit; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--txt); }
+  #preview { width:38%; max-height:64px; object-fit:contain; border-radius:6px; display:none; }
+  #status { flex:1; font-size:.78rem; color:var(--mut); }
+  #status:empty { display:none; }
+  #status, #preview { margin-top:8px; }
+  .row { display:flex; gap:10px; margin-top:10px; }
+  .letters { display:grid; grid-template-columns:repeat(9,1fr); gap:4px; margin-top:8px; }
+  .letters button { padding:8px 0; font-size:1rem; background:transparent; color:var(--acc); border:1px solid var(--acc); border-radius:8px; }
+  .scanrow button, .scanrow .btn { flex:1; padding:11px 8px; }
+  details { margin-top:6px; }
   .letters button.on { background:var(--acc); color:#fff; }
   table { width:100%; border-collapse:collapse; font-size:.85rem; }
   th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
-  details { margin-top:10px; font-size:.8rem; color:var(--mut); }
+  details { margin-top:6px; font-size:.8rem; color:var(--mut); }
   pre { white-space:pre-wrap; }
 </style>
 </head>
@@ -46,26 +50,23 @@
 <h1>Scan étiquettes</h1>
 
 <div class="card">
-  <button id="live">📷 Scanner (cadre de visée)</button>
-  <label class="btn sec" for="cam" style="margin-top:8px">Photo native (secours)</label>
+  <div class="scanrow">
+    <button id="live">📷 Scanner</button>
+    <label class="btn sec" for="cam">Photo native</label>
+  </div>
   <input id="cam" type="file" accept="image/*" capture="environment">
-  <div id="status"></div>
-  <img id="preview" alt="Aperçu">
+  <div class="scanrow" style="align-items:flex-start;margin-top:0">
+    <img id="preview" alt="Aperçu">
+    <div id="status"></div>
+  </div>
   <details><summary>Texte brut lu (diagnostic)</summary><pre id="raw"></pre></details>
 </div>
 
 <div class="card">
-  <label for="client">Client</label>
-  <input id="client" type="text" autocomplete="off">
-  <label for="ref">Réf (peut être coupée sur l'étiquette elle-même)</label>
-  <input id="ref" type="text" autocomplete="off">
-  <label for="lettre">Lettre (manuscrite : à choisir)</label>
-  <input id="lettre" type="text" maxlength="3" autocomplete="off">
-  <div class="letters" id="letters"></div>
-  <div class="row">
-    <button id="add">Ajouter au tableau</button>
-    <button id="clear" class="sec">Vider</button>
-  </div>
+  <input id="client" type="text" placeholder="Client" aria-label="Client" autocomplete="off">
+  <input id="ref" type="text" placeholder="Réf (peut être coupée sur l'étiquette)" aria-label="Réf" autocomplete="off" style="margin-top:6px">
+  <input id="lettre" type="hidden">
+  <div class="letters" id="letters" aria-label="Lettre manuscrite"></div>
 </div>
 
 <div class="card">
@@ -77,6 +78,11 @@
     <button id="export">Exporter en CSV (Excel)</button>
     <button id="wipe" class="sec">Tout effacer</button>
   </div>
+</div>
+
+<div id="bar">
+  <button id="add">Ajouter au tableau</button>
+  <button id="clear" class="sec">Vider</button>
 </div>
 
 <div id="camov">
